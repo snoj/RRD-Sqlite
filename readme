@@ -1,0 +1,20 @@
+Intro:
+	rrdtool (http://oss.oetiker.ch/rrdtool/) is an awesome tool. But I wanted to make my own round robin for personal growth and needs.
+
+Goal:
+	Easy to use SQLite based round robin database controls. The idea being to make it easier to get information out and to understand.
+
+Version:
+	0.0.1.0
+		Initial release.
+	
+Examples:
+	Import-Module RRD-SQLite
+	Create-RRD -File C:\test.db3 -Resolution 300 -Entries 20 -Fields @("inOctets","outOctets") -StartTime ([Datetime]"2/1/2012 00:00:00")
+	Update-RRD -File C:\test.db3 -Timestamp ([Datetime]"2/1/2012 15:30") -DataHashTable @{"inOctets" = 1; "outOctets" = 1}
+	Update-RRD -File C:\test.db3 -Timestamp ([Datetime]"2/1/2012 15:35") -DataHashTable @{"inOctets" = 1000; "outOctets" = 30}
+	Update-RRD -File C:\test.db3 -Timestamp ([Datetime]"2/1/2012 15:40") -DataHashTable @{"inOctets" = 124151; "outOctets" = 50}
+	Update-RRD -File C:\test.db3 -Timestamp ([Datetime]"2/1/2012 15:45") -DataHashTable @{"inOctets" = 2948616; "outOctets" = 1000}
+	
+	Fetch-RRD -File C:\test.db3;
+	
