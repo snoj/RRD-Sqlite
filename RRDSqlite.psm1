@@ -236,6 +236,7 @@ function Fetch-RRD {
 		[parameter(Mandatory=$true)]$File
 		,[datetime]$Start = ([Datetime]::Now.Adddays(-1))
 		,[datetime]$End = ([Datetime]::Now)
+		,[string]$Filter = "none"
 	);
 	$conn = New-Object system.data.sqlite.sqliteconnection "data source=$File;Version=3;";
 	$conn.Open();
@@ -260,31 +261,84 @@ function Fetch-RRD {
         $rt_info += $t;
 	}
 	#$metares.Close();
-    
-    $cmd = New-Object data.sqlite.sqlitecommand $conn;
-    $cmd.CommandText = "SELECT {0} FROM round_table WHERE time_id >= {1} and time_id <= {2};" -f ([string]::join(",", ($rt_info |%{$_.name}))), $Start.ToFileTime(), $End.ToFileTime();
-    $metares = $cmd.ExecuteReader();
     $dr = @();
-    while($metares.Read()) {
-        $props = @{};
-        foreach($fn in $rt_info) {
-            try {
-                $mri = [array]::IndexOf($rt_info, $fn);
-                $method = "get{0}" -f $fn.type;
-                $t = Invoke-Expression ('$metares.{0}($mri)' -f $method);
-                $props.add($fn.name, $t);
-            } catch {
-                $props.add($fn.name, $metares.GetValue($mri));
-            }
-        }
-        $dr += New-Object psobject -Property $props;
+    $cmd = New-Object data.sqlite.sqlitecommand $conn;
+	switch($Filter) {
+		"diff" {
+			$sql = @"
+SELECT 
+	c AS id
+	,time_id
+	,{0}
+FROM (
+	SELECT
+		time_id
+		,CASE WHEN ROWID - 1 < 1 THEN (SELECT entries FROM meta LIMIT 1) ELSE ROWID - 1 END AS p
+		,ROWID AS c
+		,CASE WHEN ROWID + 1 > (SELECT entries FROM meta LIMIT 1) THEN 1 ELSE ROWID + 1 END AS n
+	FROM round_table
+	);
+"@;
+			$fsql = ($rt_info | ?{!($_.name -match "time_id")} | %{"(SELECT {0} FROM round_table WHERE ROWID = n) - (SELECT {0} FROM round_table WHERE ROWID = c) AS diff_{0}`r`n" -f $_.name });
+			$cmd.CommandText = $sql -f ([string]::join(",", [string[]]$fsql));
+			#$cmd.commandtext
+			$metares = $cmd.ExecuteReader();
+			while($metares.Read()) {
+				$t = new-object object[] $metares.FieldCount;
+				$t2 = new-object psobject;
+				#$t = $null;
+				for($i = 0; $i -lt $t.length; $i++) {
+					#$t[$i] = $metares.GetFieldType($i).fullname;
+					$m = "`$metares.get{0}(`$i);" -f $metares.GetFieldType($i).name;
+					try {
+						#$t2.add($metares.getName($i), (invoke-expression $m));
+						switch($metares.getName($i)) {
+							"time_id" {
+								add-member -force -input $t2 -membertype noteproperty -name $metares.getName($i) -value $metares.GetInt64($i);
+							}
+							default {
+								add-member -force -input $t2 -membertype noteproperty -name $metares.getName($i) -value (invoke-expression $m);
+							}
+						}
+					} catch{ 
+						add-member -force -input $t2 -membertype noteproperty -name $metares.getName($i) -value $metares.getValue($i);
+					}
+				}
+				#$t2.time_id = [uint64]$t2.time_id;
+				#$t = $metares.FieldCount;
+				$dr += $t2;
+			}
+			$metares.Close();
+			$conn.Close();
+			break;
+		}
+		default {
+			"asdafasgdasga";
+			$cmd.CommandText = "SELECT {0} FROM round_table WHERE time_id >= {1} and time_id <= {2};" -f ([string]::join(",", ($rt_info |%{$_.name}))), $Start.ToFileTime(), $End.ToFileTime();
+			$metares = $cmd.ExecuteReader();
+			
+			while($metares.Read()) {
+				$props = @{};
+				foreach($fn in $rt_info) {
+					try {
+						$mri = [array]::IndexOf($rt_info, $fn);
+						$method = "get{0}" -f $fn.type;
+						$t = Invoke-Expression ('$metares.{0}($mri)' -f $method);
+						$props.add($fn.name, $t);
+					} catch {
+						$props.add($fn.name, $metares.GetValue($mri));
+					}
+				}
+				$dr += New-Object psobject -Property $props;
+			}
+			$metares.Close();
+			$conn.Close();
+			foreach($v in $dr) {
+				$v.time_id = [datetime]::FromFileTime($v.time_id);
+			}
+		}
 	}
-    $metares.Close();
-    $conn.Close();
-	
-    foreach($v in $dr) {
-        $v.time_id = [datetime]::FromFileTime($v.time_id);
-    }
-    
     return $dr;
 }
+
+export-modulemember -function *-RRD
