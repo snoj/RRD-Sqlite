@@ -161,12 +161,12 @@ function Update-RRD {
 	$cfields_update = @("time_id = $time_id");
 	$cfields_update_null = @(); #@("time_id = $time_id");
 	foreach($k in $DataHashTable.Keys) {
-		$cfields_update += "{0} = @{0}" -f $k;
-		$cfields_update_null += "{0} = NULL" -f $k;
+		$cfields_update += @("{0} = @{0}" -f $k);
+		$cfields_update_null += @("{0} = NULL" -f $k);
 	}
 
-	$cfields_update = [string]::Join(', ', $cfields_update);
-	$cfields_update_null = [string]::Join(', ', $cfields_update_null);
+	#$cfields_update = [string]::Join(", ", $cfields_update);
+	#$cfields_update_null = [string]::Join(", ", $cfields_update_null);
 	#$cmdb = New-Object data.sqlite.sqlitecommandbuilder (New-Object data.sqlite.sqliteDataAdapter "SELECT ROWID, * FROM round_table;", $conn)
 	#$insert = $cmdb.GetInsertCommand();
 	if($config.currentROWID -ge $config.entries) {
@@ -180,7 +180,7 @@ function Update-RRD {
 		
 	#} else {
 		#if($index -eq -1 -or $index -gt $config.entries) {
-			$cmd.CommandText = "UPDATE round_table SET $cfields_update WHERE ROWID = $($config.id_diff_nextROWID);`r`n"; # AND time_id = $time_id
+			$cmd.CommandText = "UPDATE round_table SET {0} WHERE ROWID = $($config.id_diff_nextROWID);`r`n" -f ([string]::join(", ", [string[]]$cfields_update)); # AND time_id = $time_id
 			
 		#}
 	#}
@@ -208,7 +208,7 @@ function Update-RRD {
 			$ids_to_update += $a;
 			$a#>
 			#$cmd.CommandText += "UPDATE round_table SET time_id = $a, $cfields_update_null WHERE ROWID = $($a);`r`n";
-			$cmd.CommandText += ("UPDATE round_table SET time_id = {0}, $cfields_update_null WHERE ROWID = {1};`r`n" -f $rowtimestamp, $nullrowid);
+			$cmd.CommandText += ("UPDATE round_table SET time_id = {0}, {2} WHERE ROWID = {1};`r`n" -f $rowtimestamp, $nullrowid, ([string]::join(", ", [string[]]$cfields_update_null)));#([string]::Join(", ", $cfields_update_null)));
 			
 		}
 		<#for($i = $new_currentROWID; $ids_to_update.length -lt [math]::Abs(($config.id_diff % 10) - $config.currentROWID); $i++) {
