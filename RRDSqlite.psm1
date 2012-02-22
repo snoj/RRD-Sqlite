@@ -10,7 +10,7 @@ function Create-RRD {
 	param(
 		[parameter(Mandatory=$true)]$File
 		,[int]$Resolution = 300
-		,[int]$Entries = 20
+		,[int]$Entries = 12
 		,[parameter(Mandatory=$true)][string[]]$Fields
 		,[datetime]$StartTime = ([datetime]::Now)
 	)
@@ -93,7 +93,7 @@ function Update-RRD {
 		$this.res * [math]::Pow(10, -17);
 	}
 
-	$n = ([datetime]"2/7/2012 9:30am");
+	#$n = ([datetime]"2/7/2012 9:30am");
 	#$n = ([datetime]"2/7/2012 9:45am");
 	#$n = [datetime]::Now;
 	#$n = ([datetime]"2/7/2012 10:00am");
@@ -111,14 +111,18 @@ function Update-RRD {
 	}
 
 	Add-Member -Force -InputObject $config -MemberType ScriptProperty -Name id_diff -Value {
-		(([datetime]::FromFileTime($time_id) - [datetime]::FromFileTime($config.lasttimeid)).totalseconds/$config.res)
+		(([datetime]::FromFileTime($time_id) - [datetime]::FromFileTime($this.lasttimeid)).totalseconds/$this.res)
 	}
 
 	Add-Member -Force -InputObject $config -MemberType ScriptProperty -Name id_diff_gt_entries -Value {
 		$this.id_diff -ge $this.entries;
 	}
 	Add-Member -Force -InputObject $config -MemberType ScriptProperty -Name id_diff_nextROWID -Value {
-		($this.currentROWID + $this.id_diff)%$this.entries;
+		$t = ($this.currentROWID + $this.id_diff)%$this.entries;
+        if($t -lt 1) {
+            $t = $this.entries;
+        }
+        return $t;
 	}
 	Add-Member -Force -InputObject $config -MemberType ScriptProperty -Name id_diff_wrap -Value {
 		($this.currentROWID + $this.id_diff) -gt $this.entries;
@@ -129,7 +133,7 @@ function Update-RRD {
 	$config
 
 	$update_seq = @();
-	for($i = 0; $update_seq.Count -lt $config.id_diff -and $update_seq.Count -lt $config.entries; $i++) {
+	for($i = 0; $update_seq.Count -lt $config.id_diff -and $update_seq.Count -le $config.entries; $i++) {
 		$t = ($config.id_diff_nextROWID - $i);
 		if($t -lt 1) {
 			$t = $config.entries + $t;
@@ -169,8 +173,8 @@ function Update-RRD {
 	#$cfields_update_null = [string]::Join(", ", $cfields_update_null);
 	#$cmdb = New-Object data.sqlite.sqlitecommandbuilder (New-Object data.sqlite.sqliteDataAdapter "SELECT ROWID, * FROM round_table;", $conn)
 	#$insert = $cmdb.GetInsertCommand();
-	if($config.currentROWID -ge $config.entries) {
-		$config.currentROWID = 0;
+	if($config.currentROWID -gt $config.entries) {
+		$config.currentROWID = 1;
 	}
 
 	#$cmd.CommandText = "SELECT time_id FROM round_table ORDER BY time_id DESC LIMIT 1;";
@@ -186,9 +190,7 @@ function Update-RRD {
 	#}
 
 	$new_currentROWID = ($config.currentROWID + $config.id_diff)%$config.entries;
-	if($config.id_diff -gt 1){
-		
-	}
+	
 	<#if($config.id_diff -ge $config.entries) {
 		$overwriteCount = $config.entries;
 	} else {
@@ -296,6 +298,9 @@ FROM (
 							"time_id" {
 								add-member -force -input $t2 -membertype noteproperty -name $metares.getName($i) -value $metares.GetInt64($i);
 							}
+                            "id" {
+                                add-member -force -input $t2 -membertype noteproperty -name $metares.getName($i) -value $metares.GetInt64($i);
+                            }
 							default {
 								add-member -force -input $t2 -membertype noteproperty -name $metares.getName($i) -value (invoke-expression $m);
 							}
@@ -313,7 +318,7 @@ FROM (
 			break;
 		}
 		default {
-			"asdafasgdasga";
+			
 			$cmd.CommandText = "SELECT {0} FROM round_table WHERE time_id >= {1} and time_id <= {2};" -f ([string]::join(",", ($rt_info |%{$_.name}))), $Start.ToFileTime(), $End.ToFileTime();
 			$metares = $cmd.ExecuteReader();
 			
@@ -339,6 +344,14 @@ FROM (
 		}
 	}
     return $dr;
+}
+
+function Reindex-RRD {
+	param(
+		[parameter(Mandatory=$true)]$File
+	);
+	
+	
 }
 
 export-modulemember -function *-RRD
