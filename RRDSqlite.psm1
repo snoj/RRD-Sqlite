@@ -411,5 +411,7 @@ function Repair-RRD {
         ,[switch]$Reindex
 	);
 }
-
-export-modulemember -function *-RRD
+Set-Alias -Value Create-RRD -Name New-RRD;
+Set-Alias -Value Reindex-RRD -Name Repair-RRD;
+Set-Alias -Value Fetch-RRD -Name Get-RRD;
+export-modulemember -Function *-RRD -Alias *-RRD
