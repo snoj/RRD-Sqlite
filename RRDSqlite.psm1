@@ -312,6 +312,11 @@ Diff: difference between a row and the previous entry. Useful for switch port us
 	$cmd.CommandText = "PRAGMA table_info(round_table);";
 	$metares = $cmd.ExecuteReader();
 	$rt_info = @();
+    
+    $rt_info += New-Object psobject -Property @{
+		"name" = "id";
+        "type" = "Int64";
+	};
 	while($metares.Read()) {
 		$t = New-Object psobject -Property @{
 			"name" = $metares.getString(1);
@@ -351,7 +356,7 @@ FROM (
         time_id >= {1}
         AND time_id <= {2}
 "@;
-			$fsql = ($rt_info | ?{!($_.name -match "time_id")} | %{"(SELECT {0} FROM round_table WHERE ROWID = n) - (SELECT {0} FROM round_table WHERE ROWID = c) AS diff_{0}`r`n" -f $_.name });
+			$fsql = ($rt_info | ?{!(@("time_id", "time_id_actual", "id") -contains $_.name)} | %{"(SELECT {0} FROM round_table WHERE ROWID = n) - (SELECT {0} FROM round_table WHERE ROWID = c) AS diff_{0}`r`n" -f $_.name });
 			$cmd.CommandText = $sql -f ([string]::join(",", [string[]]$fsql)), $Start.ToFileTime(), $end.ToFileTime();
 			#$cmd.commandtext
 			$metares = $cmd.ExecuteReader();
@@ -392,7 +397,7 @@ FROM (
 		}
 		default {
 			
-			$cmd.CommandText = "SELECT {0} FROM round_table WHERE time_id >= {1} and time_id <= {2};" -f ([string]::join(",", [string[]]($rt_info |%{$_.name}))), $Start.ToFileTime(), $End.ToFileTime();
+			$cmd.CommandText = "SELECT ROWID AS id, {0} FROM round_table WHERE time_id >= {1} and time_id <= {2};" -f ([string]::join(",", [string[]]($rt_info | ? {$_.name -ne "id"} | %{$_.name}))), $Start.ToFileTime(), $End.ToFileTime();
             #$cmd.CommandText;
 			$metares = $cmd.ExecuteReader();
 			
@@ -405,7 +410,10 @@ FROM (
 						$t = Invoke-Expression ('$metares.{0}($mri)' -f $method);
 						$props.add($fn.name, $t);
 					} catch {
-						$props.add($fn.name, $metares.GetValue($mri));
+                        #$_
+                        #(int i, long fieldOffset, byte[] buffer, int bufferoffset, int length)
+                        
+						$props.add($fn.name, $metares.getValue($mri));
 					}
 				}
 				$dr += New-Object psobject -Property $props;
@@ -418,8 +426,12 @@ FROM (
         
 	}
     foreach($v in $dr) {
-		$v.time_id = [datetime]::FromFileTime($v.time_id);
-        $v.time_id_actual = [datetime]::FromFileTime($v.time_id_actual);
+        if(!$v.time_id.gettype().equals([dbnull])) {
+            $v.time_id = [datetime]::FromFileTime($v.time_id);
+        }
+        if(!$v.time_id_actual.gettype().equals([dbnull])) {
+            $v.time_id_actual = [datetime]::FromFileTime([int64]$v.time_id_actual);
+        }
 	}
     return $dr;
 }
