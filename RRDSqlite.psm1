@@ -6,7 +6,7 @@ try {
 	return;
 }
 
-function Create-RRD {
+function New-RRD {
 <#
 .SYNOPSIS
 Creates an RRD file.
@@ -29,12 +29,17 @@ The starting time of the data tracked.
 		,[int]$Entries = 12
 		,[parameter(Mandatory=$true)][string[]]$Fields
 		,[datetime]$StartTime = ([datetime]::Now)
+        ,$JournalMode = "PERSIST"
 	)
 
 	try {
 		$conn.Close();
 	} catch {}
-
+    
+    if(!("DELETE|TRUNCATE|PERSIST|MEMORY|WAL|OFF".tolower().split("|") -contains $JournalMode.tolower())) {
+        $JournalMode = "PERSIST";
+    }
+    
 	$conn = New-Object system.data.sqlite.sqliteconnection "data source=$File;Version=3;";
 	$conn.Open();
 	$cfields = "";
@@ -43,6 +48,7 @@ The starting time of the data tracked.
 		$cfields += ("`t,{0} TEXT" + [environment]::NewLine) -f $f;
 	}
 	$sql = @"
+PRAGMA journal_mode {0};
 DROP TABLE IF EXISTS round_table;
 CREATE TABLE IF NOT EXISTS round_table (
 	time_id INT
@@ -57,7 +63,7 @@ CREATE TABLE IF NOT EXISTS meta (
 	,currentROWID INT
 );
 INSERT INTO meta VALUES ($Resolution, $Entries, $($StartTime.ToFileTime()), 0, 0);
-"@;
+"@ -f ($JournalMode);
 	$sql;
 	$cmd = New-Object data.sqlite.sqlitecommand $conn;
 	$cmd.CommandText = $sql;
@@ -267,7 +273,7 @@ HashTable of data to update.
 	$conn.Close();
 }
 
-function Fetch-RRD {
+function Get-RRD {
 <#
 .SYNOPSIS
 Fetches data from an RRD file based on time given.
@@ -399,12 +405,11 @@ FROM (
     return $dr;
 }
 
-function Reindex-RRD {
+function Repair-RRD {
 	param(
 		[parameter(Mandatory=$true)]$File
+        ,[switch]$Reindex
 	);
-	
-	
 }
 
 export-modulemember -function *-RRD
