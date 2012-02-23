@@ -7,6 +7,22 @@ try {
 }
 
 function Create-RRD {
+<#
+.SYNOPSIS
+Creates an RRD file.
+.DESCRIPTION
+Create an initial RRD file with time (in seconds) resolution and number of entries.
+.PARAMETER File
+Path to the file you wish to create.
+.PARAMETER Resolution
+Number of seconds between updates.
+.PARAMETER Entries
+Number of datapoints to keep track of.
+.PARAMETER Fields
+An array of names that you want to use.
+.PARAMETER StartTime
+The starting time of the data tracked.
+#>
 	param(
 		[parameter(Mandatory=$true)]$File
 		,[int]$Resolution = 300
@@ -60,6 +76,24 @@ INSERT INTO meta VALUES ($Resolution, $Entries, $($StartTime.ToFileTime()), 0, 0
 }
 
 function Update-RRD {
+<#
+.SYNOPSIS
+Update an RRD file with data.
+.DESCRIPTION
+Updates RRD file based on time specified. The row updated is the nearest to the specified time.
+
+For instance, if we have a 5m resolution and we update 1m after the last, we will overwrite the previous data. If update happens on or after 2.5m, data will be saved at the next time point.
+.PARAMETER File
+RRD file to work with.
+.PARAMETER Timestamp
+The timestamp of this update. The nearest time index will be updated.
+
+Default is now.
+.PARAMETER DataHashTable
+HashTable of data to update.
+
+@{"fieldname1" = data, "fieldname2" = data2, ...};
+#>
 	param(
 		[parameter(Mandatory=$true)]$File
 		,$Timestamp = ([datetime]::Now)
@@ -234,9 +268,25 @@ function Update-RRD {
 }
 
 function Fetch-RRD {
+<#
+.SYNOPSIS
+Fetches data from an RRD file based on time given.
+.DESCRIPTION
+Fetch data form an RRD file based on specified time. Default timeframe is now-1d starting and now for the end.
+.PARAMETER File
+The target RRD file.
+.PARAMETER Start
+Starting time for data set
+.PARAMETER End
+Ending time for data set
+.PARAMETER Filter
+Pre-return data manipulation. Types: diff.
+
+Diff: difference between a row and the previous entry. Useful for switch port usage.
+#>
 	param(
 		[parameter(Mandatory=$true)]$File
-		,[datetime]$Start = ([Datetime]::Now.Adddays(-1))
+		,[datetime]$Start = ([Datetime]::Now.AddDays(-1))
 		,[datetime]$End = ([Datetime]::Now)
 		,[string]$Filter = "none"
 	);
@@ -280,9 +330,12 @@ FROM (
 		,CASE WHEN ROWID + 1 > (SELECT entries FROM meta LIMIT 1) THEN 1 ELSE ROWID + 1 END AS n
 	FROM round_table
 	);
+    WHERE
+        time_id >= {1}
+        AND time_id <= {2}
 "@;
 			$fsql = ($rt_info | ?{!($_.name -match "time_id")} | %{"(SELECT {0} FROM round_table WHERE ROWID = n) - (SELECT {0} FROM round_table WHERE ROWID = c) AS diff_{0}`r`n" -f $_.name });
-			$cmd.CommandText = $sql -f ([string]::join(",", [string[]]$fsql));
+			$cmd.CommandText = $sql -f ([string]::join(",", [string[]]$fsql)), $Start.ToFileTime(), $end.ToFileTime();
 			#$cmd.commandtext
 			$metares = $cmd.ExecuteReader();
 			while($metares.Read()) {
