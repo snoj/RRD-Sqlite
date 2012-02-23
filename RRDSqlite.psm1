@@ -48,10 +48,11 @@ The starting time of the data tracked.
 		$cfields += ("`t,{0} TEXT" + [environment]::NewLine) -f $f;
 	}
 	$sql = @"
-PRAGMA journal_mode {0};
+PRAGMA journal_mode = {0};
 DROP TABLE IF EXISTS round_table;
 CREATE TABLE IF NOT EXISTS round_table (
 	time_id INT
+    ,time_id_actual INT
 	$cfields
 );
 DROP TABLE IF EXISTS meta;
@@ -65,20 +66,28 @@ CREATE TABLE IF NOT EXISTS meta (
 INSERT INTO meta VALUES ($Resolution, $Entries, $($StartTime.ToFileTime()), 0, 0);
 "@ -f ($JournalMode);
 	$sql;
-	$cmd = New-Object data.sqlite.sqlitecommand $conn;
-	$cmd.CommandText = $sql;
-	$cmd.ExecuteNonQuery() | Out-Null;
+	try {
+        $cmd = New-Object data.sqlite.sqlitecommand $conn;
+    	$cmd.CommandText = $sql;
+    	$cmd.ExecuteNonQuery() | Out-Null;
 
-	$cmd.Transaction = $conn.BeginTransaction();
+    	$cmd.Transaction = $conn.BeginTransaction();
 
-	$cmd.CommandText = "INSERT INTO round_table VALUES (@tid $cfields_empty)";
-	for($i = 0; $i -lt $Entries; $i++) {
-		$cmd.Parameters.Clear() | Out-Null;
-		$cmd.Parameters.add((New-Object data.sqlite.sqliteparameter "@tid", ($StartTime.AddSeconds(-($i*$Resolution)).tofiletime()) )) | Out-Null;
-		$cmd.ExecuteNonQuery() | Out-Null;
-	}
-	$cmd.Transaction.Commit() | Out-Null;
-	$conn.close();
+    	$cmd.CommandText = "INSERT INTO round_table VALUES (@tid, 0 $cfields_empty);";
+        $cmd.CommandText
+    	for($i = 0; $i -lt $Entries; $i++) {
+    		$cmd.Parameters.Clear() | Out-Null;
+    		$cmd.Parameters.add((New-Object data.sqlite.sqliteparameter "@tid", ($StartTime.AddSeconds(-($i*$Resolution)).tofiletime()) )) | Out-Null;
+    		$cmd.ExecuteNonQuery() | Out-Null;
+    	}
+    	$cmd.Transaction.Commit() | Out-Null;
+    	#$conn.close();
+    } catch {
+        $_;
+    } finally {
+        #$cmd.Transaction.Commit() | Out-Null;
+    	$conn.close();
+    }
 }
 
 function Update-RRD {
@@ -202,8 +211,8 @@ HashTable of data to update.
 
 	#>
 
-	$cfields_update = @("time_id = $time_id");
-	$cfields_update_null = @(); #@("time_id = $time_id");
+	$cfields_update = @("time_id = $time_id", "time_id_actual = $($Timestamp.tofiletime())");
+	$cfields_update_null = @("time_id_actual = NULL"); #@("time_id = $time_id");
 	foreach($k in $DataHashTable.Keys) {
 		$cfields_update += @("{0} = @{0}" -f $k);
 		$cfields_update_null += @("{0} = NULL" -f $k);
@@ -327,10 +336,12 @@ Diff: difference between a row and the previous entry. Useful for switch port us
 SELECT 
 	c AS id
 	,time_id
+    ,time_id_actual
 	,{0}
 FROM (
 	SELECT
 		time_id
+        ,time_id_actual
 		,CASE WHEN ROWID - 1 < 1 THEN (SELECT entries FROM meta LIMIT 1) ELSE ROWID - 1 END AS p
 		,ROWID AS c
 		,CASE WHEN ROWID + 1 > (SELECT entries FROM meta LIMIT 1) THEN 1 ELSE ROWID + 1 END AS n
@@ -357,6 +368,9 @@ FROM (
 							"time_id" {
 								add-member -force -input $t2 -membertype noteproperty -name $metares.getName($i) -value $metares.GetInt64($i);
 							}
+                            "time_id_actual" {
+								add-member -force -input $t2 -membertype noteproperty -name $metares.getName($i) -value $metares.GetInt64($i);
+							}
                             "id" {
                                 add-member -force -input $t2 -membertype noteproperty -name $metares.getName($i) -value $metares.GetInt64($i);
                             }
@@ -378,7 +392,8 @@ FROM (
 		}
 		default {
 			
-			$cmd.CommandText = "SELECT {0} FROM round_table WHERE time_id >= {1} and time_id <= {2};" -f ([string]::join(",", ($rt_info |%{$_.name}))), $Start.ToFileTime(), $End.ToFileTime();
+			$cmd.CommandText = "SELECT {0} FROM round_table WHERE time_id >= {1} and time_id <= {2};" -f ([string]::join(",", [string[]]($rt_info |%{$_.name}))), $Start.ToFileTime(), $End.ToFileTime();
+            #$cmd.CommandText;
 			$metares = $cmd.ExecuteReader();
 			
 			while($metares.Read()) {
@@ -397,10 +412,14 @@ FROM (
 			}
 			$metares.Close();
 			$conn.Close();
-			foreach($v in $dr) {
-				$v.time_id = [datetime]::FromFileTime($v.time_id);
-			}
+			
 		}
+        
+        
+	}
+    foreach($v in $dr) {
+		$v.time_id = [datetime]::FromFileTime($v.time_id);
+        $v.time_id_actual = [datetime]::FromFileTime($v.time_id_actual);
 	}
     return $dr;
 }
@@ -411,7 +430,7 @@ function Repair-RRD {
         ,[switch]$Reindex
 	);
 }
-Set-Alias -Value Create-RRD -Name New-RRD;
-Set-Alias -Value Reindex-RRD -Name Repair-RRD;
-Set-Alias -Value Fetch-RRD -Name Get-RRD;
+Set-Alias -Name Create-RRD -Value New-RRD;
+Set-Alias -Name Reindex-RRD -Value Repair-RRD;
+Set-Alias -Name Fetch-RRD -Value Get-RRD;
 export-modulemember -Function *-RRD -Alias *-RRD
